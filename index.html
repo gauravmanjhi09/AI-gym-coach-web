@@ -1,0 +1,1653 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Gym Coach — Real-time form tracking + voice coaching</title>
+    <meta
+      name="description"
+      content="Open-source AI gym trainer that tracks your joints in real time and coaches your form out loud, mid-set."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --ink: #0a0d14;
+        --card: #141926;
+        --card-hover: #1a2130;
+        --line: rgba(255, 255, 255, 0.09);
+        --line-strong: rgba(255, 255, 255, 0.18);
+        --text: #edeff2;
+        --muted: rgba(237, 239, 242, 0.6);
+        --faint: rgba(237, 239, 242, 0.38);
+        --amber: #ffb020;
+        --amber-dim: rgba(255, 176, 32, 0.12);
+        --teal: #00d4b4;
+        --teal-dim: rgba(0, 212, 180, 0.12);
+
+        --font-display: "Oswald", sans-serif;
+        --font-body: "Inter", sans-serif;
+        --font-mono: "JetBrains Mono", monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        background: var(--ink);
+        color: var(--text);
+        font-family: var(--font-body);
+        line-height: 1.6;
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+          linear-gradient(
+            90deg,
+            rgba(255, 255, 255, 0.015) 1px,
+            transparent 1px
+          );
+        background-size: 36px 36px;
+        overflow-x: hidden;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          animation-duration: 0.001ms !important;
+          animation-iteration-count: 1 !important;
+          transition: none !important;
+        }
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .wrap {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 0 28px;
+      }
+
+      .eyebrow {
+        font-family: var(--font-mono);
+        font-size: 0.78rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--teal);
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .eyebrow::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        background: var(--teal);
+        border-radius: 50%;
+        display: inline-block;
+        animation: pulse 2s ease-in-out infinite;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.3;
+        }
+      }
+
+      h1,
+      h2,
+      h3 {
+        font-family: var(--font-display);
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+        font-weight: 600;
+        line-height: 1.15;
+      }
+
+      /* =========================================================
+     BOOT SEQUENCE — full-screen overlay on load
+  ========================================================= */
+
+      #boot {
+        position: fixed;
+        inset: 0;
+        background: var(--ink);
+        z-index: 999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition:
+          opacity 0.6s ease,
+          visibility 0.6s ease;
+      }
+
+      #boot.hidden {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+
+      #boot-log {
+        font-family: var(--font-mono);
+        font-size: 0.86rem;
+        color: var(--teal);
+        width: 90%;
+        max-width: 480px;
+      }
+
+      #boot-log div {
+        margin-bottom: 8px;
+        opacity: 0;
+        animation: line-in 0.25s ease forwards;
+      }
+      #boot-log .dim {
+        color: var(--faint);
+      }
+      #boot-log .ok::before {
+        content: "✓ ";
+        color: var(--teal);
+      }
+
+      @keyframes line-in {
+        to {
+          opacity: 1;
+        }
+      }
+
+      .boot-cursor {
+        display: inline-block;
+        width: 8px;
+        height: 14px;
+        background: var(--amber);
+        animation: blink 0.9s step-end infinite;
+        vertical-align: middle;
+      }
+
+      @keyframes blink {
+        50% {
+          opacity: 0;
+        }
+      }
+
+      /* =========================================================
+     NAV
+  ========================================================= */
+
+      header {
+        border-bottom: 1px solid var(--line);
+        position: sticky;
+        top: 0;
+        background: rgba(10, 13, 20, 0.85);
+        backdrop-filter: blur(8px);
+        z-index: 50;
+      }
+
+      nav {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 18px 28px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .logo {
+        font-family: var(--font-display);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-weight: 600;
+        font-size: 1.05rem;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .logo-mark {
+        width: 10px;
+        height: 10px;
+        background: var(--amber);
+      }
+
+      .nav-links {
+        display: flex;
+        gap: 28px;
+        font-size: 0.88rem;
+        color: var(--muted);
+      }
+      .nav-links a:hover {
+        color: var(--amber);
+      }
+
+      .nav-cta {
+        border: 1px solid var(--line-strong);
+        padding: 8px 16px;
+        font-family: var(--font-mono);
+        font-size: 0.82rem;
+        transition:
+          border-color 0.15s ease,
+          color 0.15s ease;
+      }
+      .nav-cta:hover {
+        border-color: var(--amber);
+        color: var(--amber);
+      }
+
+      @media (max-width: 640px) {
+        .nav-links {
+          display: none;
+        }
+      }
+
+      /* =========================================================
+     HERO — signature: LIVE animated squat rep with synced readout
+  ========================================================= */
+
+      .hero {
+        padding: 96px 0 72px;
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        gap: 48px;
+        align-items: center;
+        opacity: 0;
+        animation: reveal 0.8s ease forwards;
+        animation-delay: 0.1s;
+      }
+
+      @keyframes reveal {
+        to {
+          opacity: 1;
+          transform: none;
+        }
+        from {
+          transform: translateY(12px);
+        }
+      }
+
+      @media (max-width: 860px) {
+        .hero {
+          grid-template-columns: 1fr;
+          padding-top: 56px;
+        }
+      }
+
+      .hero h1 {
+        font-size: clamp(2.1rem, 5vw, 3.4rem);
+        margin: 18px 0 20px;
+      }
+      .hero h1 .accent {
+        color: var(--amber);
+      }
+
+      .hero p.lede {
+        font-size: 1.05rem;
+        color: var(--muted);
+        max-width: 46ch;
+        margin-bottom: 32px;
+      }
+
+      .cta-row {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+      }
+
+      .btn {
+        font-family: var(--font-display);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-size: 0.88rem;
+        padding: 13px 24px;
+        border: 1px solid var(--line-strong);
+        transition: all 0.15s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .btn-primary {
+        background: var(--amber);
+        color: var(--ink);
+        border-color: var(--amber);
+      }
+      .btn-primary:hover {
+        background: transparent;
+        color: var(--amber);
+      }
+      .btn-secondary {
+        color: var(--text);
+      }
+      .btn-secondary:hover {
+        border-color: var(--teal);
+        color: var(--teal);
+      }
+
+      .skeleton-panel {
+        background: var(--card);
+        border: 1px solid var(--line);
+        aspect-ratio: 1 / 1;
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .skeleton-panel::before {
+        content: "LIVE_TRACKING.FEED";
+        position: absolute;
+        top: 14px;
+        left: 16px;
+        font-family: var(--font-mono);
+        font-size: 0.7rem;
+        color: var(--faint);
+        letter-spacing: 0.08em;
+      }
+
+      .rec-dot {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--teal);
+        box-shadow: 0 0 8px var(--teal);
+        animation: pulse 1.6s ease-in-out infinite;
+      }
+
+      svg.skeleton {
+        width: 62%;
+        height: 62%;
+      }
+
+      .bone {
+        stroke: var(--teal);
+        stroke-width: 2.5;
+        opacity: 0.9;
+      }
+      .joint {
+        fill: var(--amber);
+      }
+      .joint-head {
+        fill: none;
+        stroke: var(--amber);
+        stroke-width: 2.5;
+      }
+
+      .readout {
+        position: absolute;
+        bottom: 16px;
+        left: 16px;
+        right: 16px;
+        font-family: var(--font-mono);
+        font-size: 0.74rem;
+        color: var(--teal);
+        display: flex;
+        justify-content: space-between;
+      }
+
+      .readout .rep-count {
+        color: var(--amber);
+        font-weight: 600;
+      }
+
+      /* =========================================================
+     EXERCISE SELECTOR — interactive hero demo
+  ========================================================= */
+      .exercise-picker {
+        position: absolute;
+        top: 48px;
+        left: 16px;
+        right: 16px;
+        z-index: 3;
+      }
+
+      .exercise-picker-label {
+        display: block;
+        font-family: var(--font-mono);
+        font-size: 0.66rem;
+        color: var(--faint);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 7px;
+      }
+
+      .exercise-select {
+        width: 100%;
+        appearance: none;
+        border: 1px solid var(--line-strong);
+        background:
+          linear-gradient(45deg, transparent 50%, var(--amber) 50%)
+            calc(100% - 17px) 50% / 5px 5px no-repeat,
+          linear-gradient(135deg, var(--amber) 50%, transparent 50%)
+            calc(100% - 12px) 50% / 5px 5px no-repeat,
+          rgba(10, 13, 20, 0.92);
+        color: var(--text);
+        padding: 10px 36px 10px 12px;
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        cursor: pointer;
+        outline: none;
+      }
+
+      .exercise-select:hover,
+      .exercise-select:focus {
+        border-color: var(--amber);
+      }
+
+      .exercise-select option {
+        background: #141926;
+        color: #edeff2;
+        padding: 10px;
+      }
+
+      /* Keep the native dropdown fully usable across Chrome/Edge/Firefox.
+         Some browsers render a styled <select> popup incorrectly when
+         appearance/background gradients are heavily customized. */
+      .exercise-select {
+        appearance: auto;
+        -webkit-appearance: auto;
+        background: rgba(10, 13, 20, 0.92);
+        color-scheme: dark;
+      }
+
+      .exercise-hint {
+        margin-top: 6px;
+        font-family: var(--font-mono);
+        font-size: 0.62rem;
+        color: var(--faint);
+      }
+
+      .skeleton-panel.exercise-changed .exercise-select {
+        border-color: var(--teal);
+      }
+
+      @media (max-width: 640px) {
+        .exercise-picker {
+          top: 46px;
+        }
+      }
+
+      /* =========================================================
+     SECTIONS — shared
+  ========================================================= */
+
+      section {
+        padding: 80px 0;
+        border-top: 1px solid var(--line);
+      }
+      .section-head {
+        max-width: 60ch;
+        margin-bottom: 44px;
+      }
+      .section-head h2 {
+        font-size: clamp(1.5rem, 3vw, 2.1rem);
+        margin-top: 10px;
+      }
+      .section-head p {
+        color: var(--muted);
+        margin-top: 12px;
+      }
+
+      .reveal-on-scroll {
+        opacity: 0;
+        transform: translateY(16px);
+        transition:
+          opacity 0.6s ease,
+          transform 0.6s ease;
+      }
+      .reveal-on-scroll.in-view {
+        opacity: 1;
+        transform: none;
+      }
+
+      /* =========================================================
+     STATS STRIP
+  ========================================================= */
+
+      .stats-strip {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        border: 1px solid var(--line);
+      }
+
+      @media (max-width: 700px) {
+        .stats-strip {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+
+      .stat-cell {
+        padding: 24px 20px;
+        border-right: 1px solid var(--line);
+        text-align: center;
+      }
+      .stat-cell:last-child {
+        border-right: none;
+      }
+      @media (max-width: 700px) {
+        .stat-cell:nth-child(2n) {
+          border-right: none;
+        }
+      }
+
+      .stat-num {
+        font-family: var(--font-mono);
+        font-size: 1.7rem;
+        color: var(--amber);
+      }
+      .stat-label {
+        font-size: 0.72rem;
+        color: var(--faint);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-top: 6px;
+      }
+
+      /* =========================================================
+     FEATURES
+  ========================================================= */
+
+      .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 1px;
+        background: var(--line);
+        border: 1px solid var(--line);
+      }
+      @media (max-width: 640px) {
+        .feature-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .feature-card {
+        background: var(--ink);
+        padding: 28px;
+        transition: background 0.15s ease;
+      }
+      .feature-card:hover {
+        background: var(--card);
+      }
+
+      .feature-icon {
+        width: 34px;
+        height: 34px;
+        border: 1px solid var(--line-strong);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 18px;
+        color: var(--teal);
+      }
+
+      .feature-card h3 {
+        font-size: 1rem;
+        letter-spacing: 0.03em;
+        margin-bottom: 10px;
+      }
+      .feature-card p {
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+      .feature-card .tag {
+        display: inline-block;
+        margin-top: 14px;
+        font-family: var(--font-mono);
+        font-size: 0.7rem;
+        color: var(--faint);
+        letter-spacing: 0.05em;
+      }
+
+      /* =========================================================
+     ARCHITECTURE PIPELINE
+  ========================================================= */
+
+      .pipeline {
+        display: flex;
+        align-items: stretch;
+        flex-wrap: wrap;
+        gap: 0;
+        border: 1px solid var(--line);
+      }
+
+      .pipe-node {
+        flex: 1;
+        min-width: 150px;
+        padding: 20px 16px;
+        border-right: 1px solid var(--line);
+        position: relative;
+        background: var(--card);
+      }
+      .pipe-node:last-child {
+        border-right: none;
+      }
+
+      .pipe-node .pn-label {
+        font-family: var(--font-mono);
+        font-size: 0.68rem;
+        color: var(--faint);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      .pipe-node .pn-title {
+        font-family: var(--font-display);
+        text-transform: uppercase;
+        font-size: 0.92rem;
+        letter-spacing: 0.02em;
+        margin-top: 6px;
+        color: var(--text);
+      }
+      .pipe-node.branch .pn-title {
+        color: var(--teal);
+      }
+
+      .pipe-node::after {
+        content: "→";
+        position: absolute;
+        right: -11px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--amber);
+        font-size: 1rem;
+        background: var(--ink);
+        z-index: 2;
+        display: none;
+      }
+      @media (min-width: 641px) {
+        .pipe-node:not(:last-child)::after {
+          display: block;
+        }
+      }
+
+      .pipeline-branches {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        border-top: 1px solid var(--line);
+      }
+      @media (max-width: 640px) {
+        .pipeline-branches {
+          grid-template-columns: 1fr;
+        }
+      }
+      .pipeline-branches .pipe-node {
+        border-right: 1px solid var(--line);
+      }
+      .pipeline-branches .pipe-node:last-child {
+        border-right: none;
+      }
+      .pipeline-branches .pipe-node::after {
+        display: none;
+      }
+
+      /* =========================================================
+     ENGINEERING HIGHLIGHTS
+  ========================================================= */
+
+      .eng-list {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .eng-item {
+        display: grid;
+        grid-template-columns: 220px 1fr;
+        gap: 24px;
+        padding: 24px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .eng-item:last-child {
+        border-bottom: none;
+      }
+      @media (max-width: 700px) {
+        .eng-item {
+          grid-template-columns: 1fr;
+          gap: 8px;
+        }
+      }
+
+      .eng-problem {
+        font-family: var(--font-mono);
+        font-size: 0.78rem;
+        color: var(--amber);
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+      }
+
+      .eng-solution {
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+      .eng-solution strong {
+        color: var(--text);
+        font-weight: 500;
+      }
+
+      /* =========================================================
+     HOW IT WORKS
+  ========================================================= */
+
+      .steps {
+        display: flex;
+        flex-direction: column;
+      }
+      .step {
+        display: grid;
+        grid-template-columns: 64px 1fr;
+        gap: 20px;
+        padding: 26px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .step:last-child {
+        border-bottom: none;
+      }
+      .step-num {
+        font-family: var(--font-mono);
+        font-size: 1.3rem;
+        color: var(--amber);
+      }
+      .step h3 {
+        font-size: 1.02rem;
+        margin-bottom: 6px;
+        letter-spacing: 0.02em;
+      }
+      .step p {
+        color: var(--muted);
+        font-size: 0.92rem;
+        max-width: 56ch;
+      }
+
+      /* =========================================================
+     TECH STACK
+  ========================================================= */
+
+      .stack-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .stack-badge {
+        font-family: var(--font-mono);
+        font-size: 0.8rem;
+        padding: 9px 16px;
+        border: 1px solid var(--line-strong);
+        color: var(--muted);
+      }
+
+      /* =========================================================
+     CTA / FOOTER
+  ========================================================= */
+
+      .cta-final {
+        text-align: center;
+        padding: 88px 0;
+      }
+      .cta-final h2 {
+        font-size: clamp(1.6rem, 4vw, 2.4rem);
+        margin-bottom: 16px;
+      }
+      .cta-final p {
+        color: var(--muted);
+        margin-bottom: 32px;
+      }
+
+      .clone-cmd {
+        display: inline-block;
+        font-family: var(--font-mono);
+        font-size: 0.85rem;
+        background: var(--card);
+        border: 1px solid var(--line);
+        padding: 14px 20px;
+        margin-top: 28px;
+        color: var(--teal);
+      }
+
+      footer {
+        border-top: 1px solid var(--line);
+        padding: 28px 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.82rem;
+        color: var(--faint);
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      footer a:hover {
+        color: var(--amber);
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ============ BOOT SEQUENCE ============ -->
+    <div id="boot">
+      <div id="boot-log"></div>
+    </div>
+
+    <header>
+      <nav>
+        <div class="logo"><span class="logo-mark"></span>AI GYM COACH</div>
+        <div class="nav-links">
+          <a href="#features">Features</a>
+          <a href="#architecture">Architecture</a>
+          <a href="#how">How it works</a>
+          <a href="#stack">Stack</a>
+        </div>
+      </nav>
+    </header>
+
+    <main class="wrap">
+      <!-- ============ HERO ============ -->
+      <section class="hero" style="border-top: none; padding-top: 96px">
+        <div>
+          <span class="eyebrow">Open source · Real-time form coaching</span>
+          <h1>
+            It counts your reps.<br />It watches your
+            <span class="accent">knees</span>.<br />It won't let bad form slide.
+          </h1>
+          <p class="lede">
+            Pose tracking flags a sagging push-up or a shallow squat the instant
+            it happens — then an AI voice coach tells you what to fix, mid-set,
+            without you glancing at a screen.
+          </p>
+          <div class="cta-row">
+            <a class="btn btn-secondary" href="#architecture"
+              >See the architecture</a
+            >
+          </div>
+        </div>
+
+        <div class="skeleton-panel">
+          <span class="rec-dot"></span>
+          <div class="exercise-picker">
+            <label class="exercise-picker-label" for="exercise-select"
+              >LIVE EXERCISE</label
+            >
+            <select
+              class="exercise-select"
+              id="exercise-select"
+              aria-label="Choose exercise"
+            >
+              <option value="squat">Squats</option>
+              <option value="pushup">Push-ups</option>
+              <option value="curl">Bicep Curls</option>
+              <option value="press">Shoulder Press</option>
+              <option value="lunge">Lunges</option>
+            </select>
+            <div class="exercise-hint" id="exercise-hint">
+              Demo: knee angle + depth + reps
+            </div>
+          </div>
+          <svg
+            class="skeleton"
+            viewBox="0 0 200 240"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-label="Animated exercise pose"
+          >
+            <circle class="joint-head" id="j-head" cx="100" cy="42" r="16" />
+            <line
+              class="bone"
+              id="b-spine"
+              x1="100"
+              y1="60"
+              x2="100"
+              y2="140"
+            />
+
+            <!-- shoulders + left arm -->
+            <line
+              class="bone"
+              id="b-shoulders"
+              x1="70"
+              y1="70"
+              x2="130"
+              y2="70"
+            />
+            <line
+              class="bone"
+              id="b-l-upper"
+              x1="70"
+              y1="70"
+              x2="55"
+              y2="105"
+            />
+            <line
+              class="bone"
+              id="b-l-fore"
+              x1="55"
+              y1="105"
+              x2="65"
+              y2="135"
+            />
+
+            <!-- shoulders + right arm -->
+            <line
+              class="bone"
+              id="b-r-upper"
+              x1="130"
+              y1="70"
+              x2="145"
+              y2="105"
+            />
+            <line
+              class="bone"
+              id="b-r-fore"
+              x1="145"
+              y1="105"
+              x2="135"
+              y2="135"
+            />
+
+            <line class="bone" id="b-hip" x1="80" y1="140" x2="120" y2="140" />
+            <line
+              class="bone"
+              id="b-l-thigh"
+              x1="80"
+              y1="140"
+              x2="75"
+              y2="185"
+            />
+            <line
+              class="bone"
+              id="b-l-shin"
+              x1="75"
+              y1="185"
+              x2="80"
+              y2="225"
+            />
+            <line
+              class="bone"
+              id="b-r-thigh"
+              x1="120"
+              y1="140"
+              x2="125"
+              y2="185"
+            />
+            <line
+              class="bone"
+              id="b-r-shin"
+              x1="125"
+              y1="185"
+              x2="120"
+              y2="225"
+            />
+
+            <circle class="joint" id="j-l-shoulder" cx="70" cy="70" r="5" />
+            <circle class="joint" id="j-r-shoulder" cx="130" cy="70" r="5" />
+            <circle class="joint" id="j-l-elbow" cx="55" cy="105" r="5" />
+            <circle class="joint" id="j-r-elbow" cx="145" cy="105" r="5" />
+            <circle class="joint" id="j-l-wrist" cx="65" cy="135" r="5" />
+            <circle class="joint" id="j-r-wrist" cx="135" cy="135" r="5" />
+
+            <circle class="joint" id="j-l-hip" cx="80" cy="140" r="5" />
+            <circle class="joint" id="j-r-hip" cx="120" cy="140" r="5" />
+            <circle class="joint" id="j-l-knee" cx="75" cy="185" r="5" />
+            <circle class="joint" id="j-r-knee" cx="125" cy="185" r="5" />
+            <circle class="joint" id="j-l-ankle" cx="80" cy="225" r="5" />
+            <circle class="joint" id="j-r-ankle" cx="120" cy="225" r="5" />
+          </svg>
+          <div class="readout">
+            <span>KNEE: <span id="angle-readout">172°</span></span>
+            <span id="status-readout">STANDING</span>
+            <span>REPS: <span class="rep-count" id="rep-readout">0</span></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ STATS STRIP ============ -->
+      <section
+        class="reveal-on-scroll"
+        style="padding-top: 0; padding-bottom: 56px; border-top: none"
+      >
+        <div class="stats-strip">
+          <div class="stat-cell">
+            <div class="stat-num">33</div>
+            <div class="stat-label">Landmarks / frame</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-num">5</div>
+            <div class="stat-label">Exercise detectors</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-num">2</div>
+            <div class="stat-label">AI models in the loop</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-num">100%</div>
+            <div class="stat-label">Open source</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ FEATURES ============ -->
+      <section id="features" class="reveal-on-scroll">
+        <div class="section-head">
+          <span class="eyebrow">What it does</span>
+          <h2>Four systems, one rep at a time</h2>
+          <p>
+            Every part of the coach runs off the same real-time landmark data —
+            nothing here is a canned response.
+          </p>
+        </div>
+
+        <div class="feature-grid">
+          <div class="feature-card">
+            <div class="feature-icon">◎</div>
+            <h3>Pose Detection</h3>
+            <p>
+              MediaPipe tracks 33 body landmarks per frame to compute joint
+              angles across five exercise detectors: squats, push-ups, curls,
+              presses, and lunges.
+            </p>
+            <span class="tag">MEDIAPIPE · OPENCV</span>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">◈</div>
+            <h3>Voice AI Coach</h3>
+            <p>
+              An LLM reads your live form data and speaks corrections out loud
+              mid-set — so you never have to break form to check a screen.
+            </p>
+            <span class="tag">GROQ · TTS</span>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">▤</div>
+            <h3>Live Metrics</h3>
+            <p>
+              Rep counts, set progress, and joint angles update every frame,
+              right in the sidebar as you lift.
+            </p>
+            <span class="tag">STREAMLIT · WEBRTC</span>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">◐</div>
+            <h3>Form Analytics</h3>
+            <p>
+              A form score, rep-by-rep breakdown, streaks, and personal bests —
+              so progress means more than just rep count.
+            </p>
+            <span class="tag">PLOTLY · SQLITE</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ ARCHITECTURE ============ -->
+      <section id="architecture" class="reveal-on-scroll">
+        <div class="section-head">
+          <span class="eyebrow">Under the hood</span>
+          <h2>One frame, six hops</h2>
+          <p>
+            Every webcam frame runs this full pipeline before the next one
+            arrives.
+          </p>
+        </div>
+
+        <div class="pipeline">
+          <div class="pipe-node">
+            <div class="pn-label">Input</div>
+            <div class="pn-title">Webcam frame</div>
+          </div>
+          <div class="pipe-node">
+            <div class="pn-label">Vision</div>
+            <div class="pn-title">MediaPipe landmarker</div>
+          </div>
+          <div class="pipe-node">
+            <div class="pn-label">Domain logic</div>
+            <div class="pn-title">Exercise detector</div>
+          </div>
+          <div class="pipe-node">
+            <div class="pn-label">Sync</div>
+            <div class="pn-title">Thread-safe metrics</div>
+          </div>
+        </div>
+        <div class="pipeline-branches">
+          <div class="pipe-node branch">
+            <div class="pn-label">Branch A</div>
+            <div class="pn-title">Voice coach (Groq LLM → TTS)</div>
+          </div>
+          <div class="pipe-node branch">
+            <div class="pn-label">Branch B</div>
+            <div class="pn-title">Analytics (SQLite → Plotly)</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ ENGINEERING HIGHLIGHTS ============ -->
+      <section class="reveal-on-scroll">
+        <div class="section-head">
+          <span class="eyebrow">Engineering notes</span>
+          <h2>Problems worth mentioning</h2>
+        </div>
+
+        <div class="eng-list">
+          <div class="eng-item">
+            <div class="eng-problem">Race condition risk</div>
+            <div class="eng-solution">
+              The video processor writes pose metrics on a background WebRTC
+              thread while Streamlit reads them on its own rerun loop.
+              <strong
+                >Fixed with a lock-guarded, copy-on-read metrics object</strong
+              >
+              — no torn reads, no stale frames.
+            </div>
+          </div>
+          <div class="eng-item">
+            <div class="eng-problem">Single point of failure</div>
+            <div class="eng-solution">
+              Voice coaching depends on an external LLM API that can go down.
+              <strong
+                >Form-issue detection was extracted into a standalone
+                module</strong
+              >
+              so rep scoring and the dashboard keep working even if the voice
+              pipeline doesn't.
+            </div>
+          </div>
+          <div class="eng-item">
+            <div class="eng-problem">Upstream API drift</div>
+            <div class="eng-solution">
+              A model this shipped against was deprecated mid-development.
+              <strong>The model name lives behind a single config point</strong
+              >, so swapping providers or models is a one-line change, not a
+              refactor.
+            </div>
+          </div>
+          <div class="eng-item">
+            <div class="eng-problem">Analytics without a pipeline</div>
+            <div class="eng-solution">
+              Streaks, personal bests, and weekly volume all come from
+              <strong
+                >one SQLite table, aggregated client-side with pandas</strong
+              >
+              — no separate analytics service to maintain.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ HOW IT WORKS ============ -->
+      <section id="how" class="reveal-on-scroll">
+        <div class="section-head">
+          <span class="eyebrow">The flow</span>
+          <h2>From camera-on to coached</h2>
+        </div>
+
+        <div class="steps">
+          <div class="step">
+            <span class="step-num">01</span>
+            <div>
+              <h3>Set your plan</h3>
+              <p>
+                Pick an exercise, target sets, and reps per set — then switch
+                between five supported movements.
+              </p>
+            </div>
+          </div>
+          <div class="step">
+            <span class="step-num">02</span>
+            <div>
+              <h3>Step into frame</h3>
+              <p>
+                The camera starts tracking your joints in real time — no
+                calibration step needed.
+              </p>
+            </div>
+          </div>
+          <div class="step">
+            <span class="step-num">03</span>
+            <div>
+              <h3>Lift, get corrected</h3>
+              <p>
+                The moment your form slips, the coach speaks — depth, alignment,
+                swing, whatever's off.
+              </p>
+            </div>
+          </div>
+          <div class="step">
+            <span class="step-num">04</span>
+            <div>
+              <h3>Review the set</h3>
+              <p>
+                See your form score, rep-by-rep breakdown, and how today
+                compares to your history.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ STACK ============ -->
+      <section id="stack" class="reveal-on-scroll">
+        <div class="section-head">
+          <span class="eyebrow">Built with</span>
+          <h2>The stack underneath</h2>
+        </div>
+        <div class="stack-row">
+          <span class="stack-badge">Python</span>
+          <span class="stack-badge">Streamlit</span>
+          <span class="stack-badge">MediaPipe</span>
+          <span class="stack-badge">OpenCV</span>
+          <span class="stack-badge">streamlit-webrtc</span>
+          <span class="stack-badge">Groq</span>
+          <span class="stack-badge">Plotly</span>
+          <span class="stack-badge">SQLite</span>
+        </div>
+      </section>
+
+      <!-- ============ FINAL CTA ============ -->
+      <section class="cta-final reveal-on-scroll">
+        <h2>Train smarter. Move better.</h2>
+        <p>
+          Choose an exercise, watch the movement, and see how real-time AI form
+          tracking turns every rep into measurable feedback.
+        </p>
+      </section>
+
+      <footer>
+        <span>AI GYM COACH — an open-source project.</span>
+        <span>REAL-TIME AI FITNESS ASSISTANT</span>
+      </footer>
+    </main>
+
+    <script>
+      (function () {
+        var reduceMotion = window.matchMedia(
+          "(prefers-reduced-motion: reduce)",
+        ).matches;
+
+        /* ---------- Boot sequence ---------- */
+        var bootLines = [
+          { text: "$ streamlit run main.py", dim: true },
+          { text: "loading pose_landmarker_full.task", ok: true },
+          { text: "mediapipe pose landmarker ready — 33 pts/frame", ok: true },
+          { text: "connecting groq client…", dim: true },
+          { text: "voice pipeline initialized", ok: true },
+          { text: "camera stream: SENDRECV", ok: true },
+          { text: "> tracking started", dim: true },
+        ];
+
+        var bootEl = document.getElementById("boot");
+        var logEl = document.getElementById("boot-log");
+
+        function runBoot() {
+          if (reduceMotion) {
+            bootEl.classList.add("hidden");
+            return;
+          }
+          var delay = 0;
+          bootLines.forEach(function (line, i) {
+            delay += 220;
+            setTimeout(function () {
+              var div = document.createElement("div");
+              if (line.ok) div.className = "ok";
+              if (line.dim) div.className = (div.className + " dim").trim();
+              div.textContent = line.text;
+              logEl.appendChild(div);
+              if (i === bootLines.length - 1) {
+                var cursor = document.createElement("span");
+                cursor.className = "boot-cursor";
+                div.appendChild(cursor);
+                setTimeout(function () {
+                  bootEl.classList.add("hidden");
+                }, 500);
+              }
+            }, delay);
+          });
+        }
+        runBoot();
+
+        /* ---------- Interactive exercise demo ---------- */
+        var angleEl = document.getElementById("angle-readout");
+        var statusEl = document.getElementById("status-readout");
+        var repEl = document.getElementById("rep-readout");
+        var exerciseSelect = document.getElementById("exercise-select");
+        var exerciseHint = document.getElementById("exercise-hint");
+        var skeletonPanel = document.querySelector(".skeleton-panel");
+
+        var joints = {
+          head: document.getElementById("j-head"),
+          lShoulder: document.getElementById("j-l-shoulder"),
+          rShoulder: document.getElementById("j-r-shoulder"),
+          lElbow: document.getElementById("j-l-elbow"),
+          rElbow: document.getElementById("j-r-elbow"),
+          lWrist: document.getElementById("j-l-wrist"),
+          rWrist: document.getElementById("j-r-wrist"),
+          lHip: document.getElementById("j-l-hip"),
+          rHip: document.getElementById("j-r-hip"),
+          lKnee: document.getElementById("j-l-knee"),
+          rKnee: document.getElementById("j-r-knee"),
+          lAnkle: document.getElementById("j-l-ankle"),
+          rAnkle: document.getElementById("j-r-ankle"),
+        };
+
+        var bones = {
+          spine: document.getElementById("b-spine"),
+          shoulders: document.getElementById("b-shoulders"),
+          lUpper: document.getElementById("b-l-upper"),
+          lFore: document.getElementById("b-l-fore"),
+          rUpper: document.getElementById("b-r-upper"),
+          rFore: document.getElementById("b-r-fore"),
+          hip: document.getElementById("b-hip"),
+          lThigh: document.getElementById("b-l-thigh"),
+          lShin: document.getElementById("b-l-shin"),
+          rThigh: document.getElementById("b-r-thigh"),
+          rShin: document.getElementById("b-r-shin"),
+        };
+
+        var STAND = { hipY: 140, kneeY: 185, headY: 42, spineTopY: 60 };
+        var SQUAT = { hipY: 172, kneeY: 178, headY: 78, spineTopY: 96 };
+
+        var exercises = {
+          squat: {
+            name: "Squats",
+            hint: "Demo: knee angle + depth + reps",
+            angleLabel: "KNEE",
+            minAngle: 94,
+            maxAngle: 172,
+          },
+          pushup: {
+            name: "Push-ups",
+            hint: "Demo: elbow angle + reps",
+            angleLabel: "ELBOW",
+            minAngle: 78,
+            maxAngle: 165,
+          },
+          curl: {
+            name: "Bicep Curls",
+            hint: "Demo: elbow angle + reps",
+            angleLabel: "ELBOW",
+            minAngle: 45,
+            maxAngle: 155,
+          },
+          press: {
+            name: "Shoulder Press",
+            hint: "Demo: elbow angle + reps",
+            angleLabel: "ELBOW",
+            minAngle: 72,
+            maxAngle: 168,
+          },
+          lunge: {
+            name: "Lunges",
+            hint: "Demo: front knee angle + reps",
+            angleLabel: "KNEE",
+            minAngle: 88,
+            maxAngle: 170,
+          },
+        };
+
+        var selectedExercise = "squat";
+        var reps = 0;
+        var lastPhase = 0;
+        var hasReachedBottom = false;
+
+        function setPoint(el, attrX, attrY, x, y) {
+          el.setAttribute(attrX, x);
+          el.setAttribute(attrY, y);
+        }
+
+        function setLine(el, x1, y1, x2, y2) {
+          el.setAttribute("x1", x1);
+          el.setAttribute("y1", y1);
+          el.setAttribute("x2", x2);
+          el.setAttribute("y2", y2);
+        }
+
+        function lerp(a, b, p) {
+          return a + (b - a) * p;
+        }
+
+        function updateExerciseUI() {
+          var cfg = exercises[selectedExercise];
+          exerciseHint.textContent = cfg.hint;
+          skeletonPanel.classList.add("exercise-changed");
+          setTimeout(function () {
+            skeletonPanel.classList.remove("exercise-changed");
+          }, 350);
+
+          // Reset the demo counter when the visitor changes exercise.
+          reps = 0;
+          lastPhase = 0;
+          hasReachedBottom = false;
+          repEl.textContent = "0";
+        }
+
+        exerciseSelect.addEventListener("change", function () {
+          selectedExercise = this.value;
+          updateExerciseUI();
+        });
+
+        function drawSquatPose(phase) {
+          var hipY = lerp(STAND.hipY, SQUAT.hipY, phase);
+          var kneeY = lerp(STAND.kneeY, SQUAT.kneeY, phase);
+          var headY = lerp(STAND.headY, SQUAT.headY, phase);
+          var spineTopY = lerp(STAND.spineTopY, SQUAT.spineTopY, phase);
+
+          // Legs.
+          setPoint(joints.lHip, "cx", "cy", 80, hipY);
+          setPoint(joints.rHip, "cx", "cy", 120, hipY);
+          setPoint(joints.lKnee, "cx", "cy", 75, kneeY);
+          setPoint(joints.rKnee, "cx", "cy", 125, kneeY);
+          setPoint(joints.lAnkle, "cx", "cy", 80, 225);
+          setPoint(joints.rAnkle, "cx", "cy", 120, 225);
+
+          // Torso/head.
+          setPoint(joints.head, "cx", "cy", 100, headY);
+          setLine(bones.spine, 100, spineTopY, 100, hipY);
+          setLine(bones.shoulders, 70, spineTopY + 10, 130, spineTopY + 10);
+
+          // Functional arms: shoulders, elbows and wrists move with the squat.
+          var shoulderY = spineTopY + 10;
+          var elbowY = lerp(105, 112, phase);
+          var wristY = lerp(135, 126, phase);
+          var elbowX = lerp(55, 50, phase);
+          var rElbowX = lerp(145, 150, phase);
+          var wristX = lerp(65, 61, phase);
+          var rWristX = lerp(135, 139, phase);
+
+          setPoint(joints.lShoulder, "cx", "cy", 70, shoulderY);
+          setPoint(joints.rShoulder, "cx", "cy", 130, shoulderY);
+          setPoint(joints.lElbow, "cx", "cy", elbowX, elbowY);
+          setPoint(joints.rElbow, "cx", "cy", rElbowX, elbowY);
+          setPoint(joints.lWrist, "cx", "cy", wristX, wristY);
+          setPoint(joints.rWrist, "cx", "cy", rWristX, wristY);
+
+          setLine(bones.lUpper, 70, shoulderY, elbowX, elbowY);
+          setLine(bones.lFore, elbowX, elbowY, wristX, wristY);
+          setLine(bones.rUpper, 130, shoulderY, rElbowX, elbowY);
+          setLine(bones.rFore, rElbowX, elbowY, rWristX, wristY);
+
+          setLine(bones.hip, 80, hipY, 120, hipY);
+          setLine(bones.lThigh, 80, hipY, 75, kneeY);
+          setLine(bones.lShin, 75, kneeY, 80, 225);
+          setLine(bones.rThigh, 120, hipY, 125, kneeY);
+          setLine(bones.rShin, 125, kneeY, 120, 225);
+        }
+
+        function drawPushupPose(phase) {
+          // Side-view push-up: the same skeleton becomes a clean horizontal body line.
+          var down = phase;
+          var y = lerp(92, 126, down);
+          var elbowY = lerp(108, 139, down);
+          var shoulderX = 74;
+          var hipX = 124;
+          var kneeX = 151;
+          var ankleX = 174;
+
+          setPoint(joints.head, "cx", "cy", 45, y - 4);
+          setPoint(joints.lShoulder, "cx", "cy", shoulderX, y);
+          setPoint(joints.rShoulder, "cx", "cy", shoulderX, y + 5);
+          setPoint(joints.lHip, "cx", "cy", hipX, y + 5);
+          setPoint(joints.rHip, "cx", "cy", hipX, y + 10);
+          setPoint(joints.lKnee, "cx", "cy", kneeX, y + 7);
+          setPoint(joints.rKnee, "cx", "cy", kneeX, y + 12);
+          setPoint(joints.lAnkle, "cx", "cy", ankleX, y + 7);
+          setPoint(joints.rAnkle, "cx", "cy", ankleX, y + 12);
+
+          setPoint(joints.lElbow, "cx", "cy", 62, elbowY);
+          setPoint(joints.rElbow, "cx", "cy", 62, elbowY + 5);
+          setPoint(joints.lWrist, "cx", "cy", 70, 158);
+          setPoint(joints.rWrist, "cx", "cy", 70, 163);
+
+          setLine(bones.spine, shoulderX, y + 3, hipX, y + 7);
+          setLine(bones.shoulders, shoulderX, y, shoulderX, y + 5);
+          setLine(bones.lUpper, shoulderX, y, 62, elbowY);
+          setLine(bones.lFore, 62, elbowY, 70, 158);
+          setLine(bones.rUpper, shoulderX, y + 5, 62, elbowY + 5);
+          setLine(bones.rFore, 62, elbowY + 5, 70, 163);
+          setLine(bones.hip, hipX, y + 5, hipX, y + 10);
+          setLine(bones.lThigh, hipX, y + 5, kneeX, y + 7);
+          setLine(bones.lShin, kneeX, y + 7, ankleX, y + 7);
+          setLine(bones.rThigh, hipX, y + 10, kneeX, y + 12);
+          setLine(bones.rShin, kneeX, y + 12, ankleX, y + 12);
+        }
+
+        function drawCurlPose(phase) {
+          drawSquatPose(0.05);
+
+          var elbowY = 112;
+          var wristY = lerp(148, 102, phase);
+          var wristX = lerp(63, 78, phase);
+          var rWristX = lerp(137, 122, phase);
+          var rElbowX = 150;
+
+          setPoint(joints.lElbow, "cx", "cy", 50, elbowY);
+          setPoint(joints.rElbow, "cx", "cy", rElbowX, elbowY);
+          setPoint(joints.lWrist, "cx", "cy", wristX, wristY);
+          setPoint(joints.rWrist, "cx", "cy", rWristX, wristY);
+          setLine(bones.lUpper, 70, 70, 50, elbowY);
+          setLine(bones.rUpper, 130, 70, rElbowX, elbowY);
+          setLine(bones.lFore, 50, elbowY, wristX, wristY);
+          setLine(bones.rFore, rElbowX, elbowY, rWristX, wristY);
+        }
+
+        function drawPressPose(phase) {
+          drawSquatPose(0.05);
+
+          var wristY = lerp(145, 52, phase);
+          var wristX = lerp(65, 68, phase);
+          var rWristX = lerp(135, 132, phase);
+          var elbowY = lerp(112, 82, phase);
+
+          setPoint(joints.lElbow, "cx", "cy", 52, elbowY);
+          setPoint(joints.rElbow, "cx", "cy", 148, elbowY);
+          setPoint(joints.lWrist, "cx", "cy", wristX, wristY);
+          setPoint(joints.rWrist, "cx", "cy", rWristX, wristY);
+          setLine(bones.lUpper, 70, 70, 52, elbowY);
+          setLine(bones.rUpper, 130, 70, 148, elbowY);
+          setLine(bones.lFore, 52, elbowY, wristX, wristY);
+          setLine(bones.rFore, 148, elbowY, rWristX, wristY);
+        }
+
+        function drawLungePose(phase) {
+          var hipY = lerp(140, 154, phase);
+          var frontKneeX = lerp(75, 92, phase);
+          var frontKneeY = lerp(185, 192, phase);
+          var backKneeX = lerp(125, 145, phase);
+          var backKneeY = lerp(185, 202, phase);
+
+          setPoint(joints.head, "cx", "cy", 100, lerp(42, 48, phase));
+          setPoint(joints.lHip, "cx", "cy", 84, hipY);
+          setPoint(joints.rHip, "cx", "cy", 116, hipY);
+          setPoint(joints.lKnee, "cx", "cy", frontKneeX, frontKneeY);
+          setPoint(joints.rKnee, "cx", "cy", backKneeX, backKneeY);
+          setPoint(joints.lAnkle, "cx", "cy", 82, 225);
+          setPoint(joints.rAnkle, "cx", "cy", 166, 225);
+
+          setLine(bones.spine, 100, 60, 100, hipY);
+          setLine(bones.shoulders, 70, 70, 130, 70);
+          setLine(bones.lThigh, 84, hipY, frontKneeX, frontKneeY);
+          setLine(bones.lShin, frontKneeX, frontKneeY, 82, 225);
+          setLine(bones.rThigh, 116, hipY, backKneeX, backKneeY);
+          setLine(bones.rShin, backKneeX, backKneeY, 166, 225);
+          setLine(bones.hip, 84, hipY, 116, hipY);
+
+          // Natural arm counter-swing.
+          var armY = lerp(106, 124, phase);
+          setPoint(joints.lShoulder, "cx", "cy", 70, 70);
+          setPoint(joints.rShoulder, "cx", "cy", 130, 70);
+          setPoint(joints.lElbow, "cx", "cy", 56, armY);
+          setPoint(joints.rElbow, "cx", "cy", 144, 124 - phase * 18);
+          setPoint(joints.lWrist, "cx", "cy", 66, armY + 28);
+          setPoint(joints.rWrist, "cx", "cy", 134, 152 - phase * 18);
+          setLine(bones.lUpper, 70, 70, 56, armY);
+          setLine(bones.lFore, 56, armY, 66, armY + 28);
+          setLine(bones.rUpper, 130, 70, 144, 124 - phase * 18);
+          setLine(bones.rFore, 144, 124 - phase * 18, 134, 152 - phase * 18);
+        }
+
+        function frame(ts) {
+          // A smooth 2.4s cycle. Phase always travels 0 → 1 → 0.
+          var t = (ts % 2400) / 2400;
+          var phase = (1 - Math.cos(t * Math.PI * 2)) / 2;
+          var cfg = exercises[selectedExercise];
+
+          if (selectedExercise === "squat") drawSquatPose(phase);
+          else if (selectedExercise === "pushup") drawPushupPose(phase);
+          else if (selectedExercise === "curl") drawCurlPose(phase);
+          else if (selectedExercise === "press") drawPressPose(phase);
+          else drawLungePose(phase);
+
+          var angle = Math.round(
+            cfg.maxAngle - phase * (cfg.maxAngle - cfg.minAngle),
+          );
+          angleEl.textContent = angle + "°";
+
+          if (phase > 0.84) statusEl.textContent = "DEPTH: GOOD";
+          else if (t < 0.5) statusEl.textContent = "DESCENDING";
+          else statusEl.textContent = "ASCENDING";
+
+          // Robust rep counter:
+          // 1) mark a completed bottom/deep position,
+          // 2) count only when the body returns through the halfway point.
+          // This avoids relying on a single exact animation frame.
+          if (phase > 0.86) {
+            hasReachedBottom = true;
+          }
+          if (hasReachedBottom && lastPhase > 0.52 && phase <= 0.52) {
+            reps += 1;
+            repEl.textContent = reps;
+            hasReachedBottom = false;
+          }
+          lastPhase = phase;
+
+          requestAnimationFrame(frame);
+        }
+
+        if (!reduceMotion) {
+          requestAnimationFrame(frame);
+        } else {
+          angleEl.textContent = "94°";
+          statusEl.textContent = "DEPTH: GOOD";
+          repEl.textContent = "3";
+        }
+
+        /* ---------- Scroll reveal ---------- */
+        var observer = new IntersectionObserver(
+          function (entries) {
+            entries.forEach(function (e) {
+              if (e.isIntersecting) e.target.classList.add("in-view");
+            });
+          },
+          { threshold: 0.12 },
+        );
+
+        document.querySelectorAll(".reveal-on-scroll").forEach(function (el) {
+          observer.observe(el);
+        });
+      })();
+    </script>
+  </body>
+</html>
